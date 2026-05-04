@@ -29,9 +29,17 @@ try:
     use_ttsfrd = True
 except ImportError:
     print("failed to import ttsfrd, use WeTextProcessing instead")
-    from tn.chinese.normalizer import Normalizer as ZhNormalizer
-    from tn.english.normalizer import Normalizer as EnNormalizer
-    use_ttsfrd = False
+    try:
+        from tn.chinese.normalizer import Normalizer as ZhNormalizer
+        from tn.english.normalizer import Normalizer as EnNormalizer
+        use_ttsfrd = False
+    except ImportError:
+        # macOS: neither ttsfrd nor WeTextProcessing available; CosyVoice will fail at runtime
+        # but the module can still be imported (other TTS backends still work)
+        print("WeTextProcessing also unavailable; CosyVoice text normalization disabled at runtime")
+        ZhNormalizer = None
+        EnNormalizer = None
+        use_ttsfrd = False
 from cosyvoice.utils.file_utils import logging
 from cosyvoice.utils.frontend_utils import contains_chinese, replace_blank, replace_corner_mark, remove_bracket, spell_out_number, split_paragraph, is_only_punctuation
 
