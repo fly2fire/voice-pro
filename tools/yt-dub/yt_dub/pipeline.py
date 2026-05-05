@@ -49,6 +49,7 @@ class Config:
 def run_pipeline(cfg: Config) -> Path:
     cfg.workdir.mkdir(parents=True, exist_ok=True)
     seg_dir = cfg.workdir / "tts_segments"
+    fit_dir = cfg.workdir / "tts_segments_fit"
     en_srt = cfg.workdir / "subs.src.srt"
     zh_srt = cfg.workdir / "subs.dst.srt"
     dubbed_audio = cfg.workdir / "dubbed.wav"
@@ -143,8 +144,25 @@ def run_pipeline(cfg: Config) -> Path:
     console.rule("[bold cyan]5/5 Assemble + Mux")
     t0 = time.time()
     total_duration = max(s.end for s in segs_dst)
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        console=console,
+    ) as prog:
+        task = prog.add_task("  Compressing overlong segments", total=len(segs_dst))
+
+        def cb(done, total):
+            prog.update(task, completed=done)
+
+        fit_stats = mux.fit_segments_to_slots(segs_dst, seg_dir, fit_dir, on_progress=cb)
+    n_compressed = sum(1 for s in fit_stats.values() if s["applied"] > 1.02)
+    n_extreme = sum(1 for s in fit_stats.values() if s["ratio"] > 1.8)
+    console.print(f"  ✓ {n_compressed}/{len(segs_dst)} segments time-compressed ({n_extreme} extreme >1.8x slot)")
     with console.status("[bold]Assembling dubbed audio track..."):
-        mux.assemble_audio(segs_dst, seg_dir, dubbed_audio, total_duration=total_duration)
+        mux.assemble_audio(segs_dst, fit_dir, dubbed_audio, total_duration=total_duration)
     console.print(f"  ✓ dubbed audio: {dubbed_audio.name}")
     with console.status("[bold]Muxing video + audio + subtitles..."):
         mux.mux_dubbed(video, dubbed_audio, zh_srt, cfg.out_path, keep_bg_pct=cfg.mix_bg)

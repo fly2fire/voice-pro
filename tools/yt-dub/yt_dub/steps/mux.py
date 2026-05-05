@@ -26,6 +26,62 @@ def _ffprobe_duration(path: Path) -> float:
         return 0.0
 
 
+def fit_segments_to_slots(
+    segs: list[Segment],
+    src_dir: Path,
+    fit_dir: Path,
+    *,
+    headroom: float = 0.95,
+    max_atempo: float = 1.8,
+    on_progress=None,
+) -> dict[int, dict]:
+    """For each TTS mp3 longer than its SRT slot, write a time-compressed copy
+    into ``fit_dir`` (using ffmpeg atempo). Segments that already fit are
+    just copied to ``fit_dir`` unchanged. ``src_dir`` is never modified, so
+    this step is fully idempotent across resumes.
+
+    Returns per-segment stats {idx: {actual, slot, ratio, applied}}.
+
+    headroom < 1.0 leaves a gap before the next segment starts (default 5%).
+    max_atempo caps how aggressive we compress (atempo>2.0 sounds chipmunky).
+    """
+    fit_dir.mkdir(parents=True, exist_ok=True)
+    stats: dict[int, dict] = {}
+    n = len(segs)
+    for i, seg in enumerate(segs):
+        src = src_dir / f"{seg.idx:05d}.mp3"
+        dst = fit_dir / f"{seg.idx:05d}.mp3"
+        if not src.exists() or src.stat().st_size == 0:
+            if on_progress:
+                on_progress(i + 1, n)
+            continue
+        actual = _ffprobe_duration(src)
+        slot = max(seg.duration * headroom, 0.5)  # at least 0.5s window
+        ratio = actual / slot if slot > 0 else 1.0
+        applied = 1.0
+        if ratio > 1.02:  # 2% tolerance
+            applied = min(ratio, max_atempo)
+            run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-loglevel",
+                    "error",
+                    "-i",
+                    str(src),
+                    "-filter:a",
+                    f"atempo={applied:.3f}",
+                    str(dst),
+                ]
+            )
+        else:
+            run(["cp", str(src), str(dst)])
+        stats[seg.idx] = {"actual": actual, "slot": slot, "ratio": ratio, "applied": applied}
+        if on_progress:
+            on_progress(i + 1, n)
+    return stats
+
+
 def assemble_audio(
     segs: list[Segment],
     seg_dir: Path,
