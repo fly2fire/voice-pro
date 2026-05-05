@@ -6,8 +6,14 @@ environment management. Tested on macOS 25.3 (Darwin) / Apple Silicon
 
 > **Status:** Phase 1+2+3+4 verified. F5-TTS / E2-TTS voice cloning works
 > with MPS GPU. Whisper / Faster-Whisper / WhisperX / Whisper-Timestamped /
-> Edge-TTS / Kokoro / Demucs / yt-dlp / translation all work. CosyVoice is
-> currently disabled on macOS (see Known Limitations).
+> Edge-TTS / Kokoro / Demucs / yt-dlp / translation all work. CosyVoice
+> works once `pynini` and `WeTextProcessing` are installed (see Optional:
+> CosyVoice support).
+>
+> **For YouTube dubbing, see [`tools/yt-dub`](../tools/yt-dub/README.md)** —
+> a focused CLI built on top of this venv that turns any YouTube URL into
+> a translated dubbed mp4 in one command, without going through Voice-Pro's
+> Gradio UI.
 
 ## Prerequisites
 
@@ -90,22 +96,71 @@ Tested on M-series Mac, tiny test audio (~4s English):
 | Translation     | HTTP   | 1.7s    | deep-translator (Google) |
 | **Full pipeline (ASR + translate + TTS)** | mixed | **6.78s** | en→zh dubbing |
 
+## Recommended: yt-dub CLI for YouTube dubbing
+
+If your goal is "translate and dub a YouTube video" (the most common
+single use-case), skip the Gradio UI and use the focused CLI shipped at
+[`tools/yt-dub`](../tools/yt-dub/README.md):
+
+```bash
+source .venv/bin/activate
+pip install -e tools/yt-dub
+yt-dub "https://www.youtube.com/watch?v=..."
+```
+
+Pipeline: yt-dlp + ffmpeg → faster-whisper ASR → translate (Google /
+Claude / GPT) → edge-tts async parallel → ffmpeg assemble. Includes
+`atempo` time-compression so dubbed segments stay aligned with the
+original timeline (no overlapping audio). Output goes to
+`~/Movies/yt-dub/<video-id>/`.
+
+End-to-end on a 25-minute video: ~9 minutes with Google translate,
+~3-4 minutes with `--translator claude`. See `yt-dub --help` for all
+options including voice picker (`--list-voices`), source/target
+languages, ASR model, and original-audio mixing.
+
+## Optional: CosyVoice support
+
+CosyVoice's Chinese/English text normalization needs either Alibaba's
+`ttsfrd` (no arm64 wheel) or `WeTextProcessing` (which depends on
+`pynini`). The trick on macOS Apple Silicon:
+
+```bash
+source .venv/bin/activate
+
+# pynini needs to build from source against Homebrew's openfst.
+# Versions ≤ 2.1.6 are NOT compatible with openfst 1.8.4. Use 2.1.7+.
+export CPPFLAGS="-I/opt/homebrew/include $CPPFLAGS"
+export LDFLAGS="-L/opt/homebrew/lib $LDFLAGS"
+uv pip install --no-build-isolation pynini==2.1.7
+
+# WeTextProcessing pins an older pynini, so install with --no-deps to keep
+# our newer one.
+uv pip install --no-deps WeTextProcessing
+uv pip install importlib_resources
+
+# Verify
+python -c "from tn.chinese.normalizer import Normalizer as Z; from tn.english.normalizer import Normalizer as E; \
+  print(Z().normalize('今天是2026年5月4日，温度22度')); print(E().normalize('It costs \$100 and takes 5 hours'))"
+```
+
+CosyVoice2-0.5B model (~9 GB) is deferred from level 0 to level 1 in
+`abus_hf_files-voice.json` — it does not download automatically on first
+boot. To opt in:
+
+```bash
+python -c "from app.abus_hf import AbusHuggingFace; \
+  AbusHuggingFace.initialize('voice'); \
+  AbusHuggingFace.hf_download_models(file_type='cosyvoice', level=1)"
+```
+
+Note: F5-TTS and E2-TTS already cover zero-shot voice cloning with native
+MPS acceleration and are recommended for most users; CosyVoice is mainly
+worth installing if you need streaming TTS or instructed-style control.
+
 ## Known Limitations on macOS
 
-### 1. CosyVoice text frontend disabled
-
-CosyVoice's Chinese/English text normalization requires either `ttsfrd`
-(Alibaba's TTS frontend, no arm64 PyPI wheel) or `WeTextProcessing` (which
-depends on `pynini`). `pynini==2.1.5` does not build cleanly against
-Homebrew's openfst 1.8.4 due to `CompileInternal` API drift in openfst.
-
-**Workaround:** `cosyvoice/cli/frontend.py` has been patched to import
-gracefully when both backends are unavailable. The CosyVoice TTS tab in
-the UI will be present but invoking it will raise at runtime. **Use F5-TTS
-or E2-TTS for voice cloning instead — both have native MPS support and
-work out of the box.**
-
-### 2. Demucs runs on CPU, not MPS
+### 1. Demucs runs on CPU, not MPS
 
 PyTorch's MPS backend rejects 1-D conv layers with output channels > 65536,
 which Demucs hits internally. `PYTORCH_ENABLE_MPS_FALLBACK=1` does not fix
@@ -113,13 +168,13 @@ this case. Pass `--device cpu` (or set `device='cpu'` in voice-pro's
 Demucs settings). On M-series Macs, CPU separation is fast enough for
 typical clips.
 
-### 3. WhisperX / Faster-Whisper run on CPU
+### 2. WhisperX / Faster-Whisper run on CPU
 
 These use `ctranslate2` under the hood, which has no MPS support. They
 auto-fall back to CPU on Macs without CUDA. The original voice-pro code
 already handles this correctly via `torch.cuda.is_available()`.
 
-### 4. Skipped 8.6 GB CosyVoice2-0.5B download
+### 3. CosyVoice2-0.5B (~9 GB) deferred to level 1
 
 `app/abus_hf_files-voice.json` ships with `CosyVoice2-0.5B.zip` at
 `level: 1` (was `level: 0`). The Voice-Pro UI boots without it because
@@ -143,10 +198,19 @@ not `requirements-voice-cpu.txt`.
 Kokoro shells out to `pip` to install the spaCy English model. Since `uv
 venv` doesn't include `pip` by default, run `uv pip install pip` once.
 
-**`ImportError: No module named 'tn'` when importing
-`app.abus_app_voice`.**
-You're missing the `cosyvoice/cli/frontend.py` macOS patch. Make sure
-you're on the `macos-support` branch: `git log --oneline | grep frontend`.
+**`ImportError: No module named 'tn'` when invoking CosyVoice.**
+You haven't installed `pynini` + `WeTextProcessing` yet. The
+`cosyvoice/cli/frontend.py` macOS patch lets the module *import* without
+them, but actually *running* CosyVoice still needs the text normalizer.
+See "Optional: CosyVoice support" above.
+
+**`fatal error: 'fst/util.h' file not found` building pynini.**
+You forgot `export CPPFLAGS="-I/opt/homebrew/include"` (and the matching
+LDFLAGS). The Homebrew openfst headers aren't on the default search path.
+
+**`'CompileInternal' function not viable` building pynini 2.1.5/2.1.6.**
+Those versions are incompatible with Homebrew's openfst 1.8.4. Use
+`pynini==2.1.7` or newer.
 
 **Gradio UI starts but Whisper transcription is slow.**
 On Apple Silicon, OpenAI Whisper can in principle use MPS, but
