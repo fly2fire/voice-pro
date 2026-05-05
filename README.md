@@ -93,6 +93,42 @@ A robust alternative to **ElevenLabs**, Voice-Pro empowers podcasters, developer
 - Please leave your requests on the [![GitHub Issues](https://img.shields.io/github/issues/abus-aikorea/voice-pro)](https://github.com/abus-aikorea/voice-pro/issues)  or  [![GitHub Discussions](https://img.shields.io/github/discussions/abus-aikorea/voice-pro)](https://github.com/abus-aikorea/voice-pro/discussions) pages.
 - **Troubleshooting**: In most cases, issues can be resolved by deleting the `installer_files` folder and then running `configure.bat` followed by `start.bat`.
 
+## 🍎 macOS support (this fork)
+
+This fork adds verified macOS Apple Silicon support, plus a focused
+`yt-dub` CLI for the YouTube-dubbing use-case.
+
+- **Native PyTorch + MPS GPU** — F5-TTS / E2-TTS run on Metal, ~11s for a
+  voice-cloning inference. Whisper / Faster-Whisper / WhisperX /
+  Whisper-Timestamped / Demucs / Edge-TTS / Kokoro / yt-dlp / translation
+  all verified end-to-end.
+- **`uv` instead of Miniconda** — no 500 MB conda toolchain; `start-mac.sh`
+  creates an isolated `.venv` in seconds.
+- **`tools/yt-dub`: one-command dubbing CLI** — `yt-dub <youtube-url>`
+  produces a translated dubbed mp4 in ~5–10 minutes (with proper
+  time-alignment so dubbed segments don't overlap).
+- **`skills/yt-dub`: agent skill** — Claude Code / Cursor auto-activate
+  when the user asks "translate this YouTube video" / "给视频配中文".
+- **CosyVoice on macOS** — installable via the `pynini` 2.1.7 + Homebrew
+  openfst path; F5-TTS / E2-TTS recommended for most users (native MPS).
+
+Quick start on macOS:
+
+```bash
+git clone -b macos-support https://github.com/<your-fork>/voice-pro.git
+cd voice-pro
+./start-mac.sh                      # boot Voice-Pro UI on http://localhost:7860
+
+# OR for YouTube dubbing without the UI:
+source .venv/bin/activate
+pip install -e tools/yt-dub
+yt-dub "https://www.youtube.com/watch?v=..."
+```
+
+📖 Full guide: [`docs/installation-macos.md`](docs/installation-macos.md) ·
+🛠 yt-dub CLI: [`tools/yt-dub/README.md`](tools/yt-dub/README.md) ·
+🤖 Agent skill: [`skills/README.md`](skills/README.md)
+
 
 ## 📰 News & History
 
