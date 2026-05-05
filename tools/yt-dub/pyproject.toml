@@ -24,7 +24,7 @@ claude = ["anthropic>=0.40"]
 gpt = ["openai>=1.50"]
 
 [project.scripts]
-yt-dub = "yt_dub.cli:main"
+yt-dub = "yt_dub.cli:cli_entry"
 
 [tool.hatch.build.targets.wheel]
 packages = ["yt_dub"]

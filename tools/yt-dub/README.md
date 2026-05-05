@@ -68,8 +68,8 @@ yt-dub <url> --proxy http://localhost:7890 --cookies-from-browser chrome
 
 ```bash
 # List voices
-yt-dub list-voices --lang zh-CN
-yt-dub list-voices --lang ja-JP --gender Male
+yt-dub --list-voices --voice-lang zh-CN
+yt-dub --list-voices --voice-lang ja-JP --voice-gender Male
 ```
 
 ## Output layout

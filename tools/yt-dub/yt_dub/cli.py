@@ -13,12 +13,6 @@ from .pipeline import Config, run_pipeline
 from .steps import tts as tts_step
 from .utils import need, video_id_from_url
 
-app = typer.Typer(
-    add_completion=False,
-    rich_markup_mode="rich",
-    help="YouTube → translated dubbed video. macOS-friendly. See README for details.",
-    no_args_is_help=True,
-)
 console = Console()
 
 
@@ -26,24 +20,52 @@ def _default_workdir(video_id: str) -> Path:
     return Path.home() / "Movies" / "yt-dub" / video_id
 
 
-@app.command()
-def dub(
-    url: str = typer.Argument(..., help="YouTube URL."),
+def main(
+    url: Optional[str] = typer.Argument(None, help="YouTube URL. Omit (with --list-voices) to list voices."),
+    list_voices: bool = typer.Option(False, "--list-voices", help="List Edge-TTS voices and exit."),
+    voice_lang: Optional[str] = typer.Option(None, "--voice-lang", help="When listing voices, filter by locale (e.g. zh-CN, ja-JP)."),
+    voice_gender: Optional[str] = typer.Option(None, "--voice-gender", help="When listing voices, filter by gender (Male/Female)."),
     lang_from: str = typer.Option("en", "--lang-from", "-s", help="Source language code (Whisper)."),
     lang_to: str = typer.Option("zh-CN", "--lang-to", "-t", help="Target language code."),
-    voice: str = typer.Option("zh-CN-XiaoxiaoNeural", "--voice", "-V", help="Edge-TTS voice. Use --list-voices to see all."),
+    voice: str = typer.Option("zh-CN-XiaoxiaoNeural", "--voice", "-V", help="Edge-TTS voice. Use --list-voices to browse."),
     asr_model: str = typer.Option("base", "--asr", help="Whisper model: tiny/base/small/medium/large-v3"),
     rate: str = typer.Option("+15%", "--rate", help="TTS rate adjustment (e.g. +15%, -10%)."),
-    mix_bg: int = typer.Option(0, "--mix-bg", min=0, max=100, help="Keep original audio at N%% volume mixed under dub. 0=pure dub."),
+    mix_bg: int = typer.Option(0, "--mix-bg", min=0, max=100, help="Keep original audio at N% volume mixed under dub. 0=pure dub."),
     translator: str = typer.Option("google", "--translator", help="google / claude / gpt / none"),
     workdir: Optional[Path] = typer.Option(None, "--workdir", help="Working directory (intermediate files). Default: ~/Movies/yt-dub/<video-id>/"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output mp4 path. Default: <workdir>/<video-id>.dubbed.mp4"),
-    proxy: Optional[str] = typer.Option(None, "--proxy", help="HTTP proxy. Default: $HTTP_PROXY or $HTTPS_PROXY."),
-    cookies_browser: Optional[str] = typer.Option("firefox", "--cookies-from-browser", help="Browser to read cookies from. Default: firefox. Pass empty to disable."),
+    proxy: Optional[str] = typer.Option(None, "--proxy", help="HTTP proxy. Default: $HTTPS_PROXY or $HTTP_PROXY."),
+    cookies_browser: Optional[str] = typer.Option("firefox", "--cookies-from-browser", help="Browser to read cookies from. Pass empty to disable."),
     concurrency: int = typer.Option(8, "--concurrency", "-j", help="TTS parallelism."),
-    no_resume: bool = typer.Option(False, "--no-resume", help="Force re-run all steps, don't reuse intermediate files."),
+    no_resume: bool = typer.Option(False, "--no-resume", help="Force re-run all steps."),
 ):
-    """Run the full dubbing pipeline."""
+    """YouTube → translated dubbed mp4. macOS-friendly. Single-purpose CLI."""
+    if list_voices:
+        voices = tts_step.list_voices()
+        if voice_lang:
+            voices = [v for v in voices if v.get("Locale", "").lower().startswith(voice_lang.lower())]
+        if voice_gender:
+            voices = [v for v in voices if v.get("Gender", "").lower() == voice_gender.lower()]
+        table = Table(show_header=True, header_style="bold")
+        table.add_column("ShortName")
+        table.add_column("Gender")
+        table.add_column("Locale")
+        table.add_column("Friendly")
+        for v in voices:
+            table.add_row(
+                v.get("ShortName", ""),
+                v.get("Gender", ""),
+                v.get("Locale", ""),
+                v.get("FriendlyName", "").replace("Microsoft ", "").replace(" Online (Natural) - ", " / "),
+            )
+        console.print(f"[dim]{len(voices)} voices")
+        console.print(table)
+        return
+
+    if url is None:
+        console.print("[red]Error:[/red] URL required (or use --list-voices). See --help.")
+        raise typer.Exit(1)
+
     need("yt-dlp")
     need("ffmpeg")
     need("ffprobe")
@@ -80,36 +102,9 @@ def dub(
     run_pipeline(cfg)
 
 
-@app.command("list-voices")
-def list_voices(
-    lang: Optional[str] = typer.Option(None, "--lang", help="Filter by language code, e.g. zh-CN, ja-JP, en-US"),
-    gender: Optional[str] = typer.Option(None, "--gender", help="Male or Female"),
-):
-    """List Edge-TTS voices."""
-    voices = tts_step.list_voices()
-    if lang:
-        voices = [v for v in voices if v.get("Locale", "").lower().startswith(lang.lower())]
-    if gender:
-        voices = [v for v in voices if v.get("Gender", "").lower() == gender.lower()]
-    table = Table(show_header=True, header_style="bold")
-    table.add_column("ShortName")
-    table.add_column("Gender")
-    table.add_column("Locale")
-    table.add_column("Friendly")
-    for v in voices:
-        table.add_row(
-            v.get("ShortName", ""),
-            v.get("Gender", ""),
-            v.get("Locale", ""),
-            v.get("FriendlyName", "").replace("Microsoft ", "").replace(" Online (Natural) - ", " / "),
-        )
-    console.print(f"[dim]{len(voices)} voices")
-    console.print(table)
-
-
-def main() -> None:
-    app()
+def cli_entry() -> None:
+    typer.run(main)
 
 
 if __name__ == "__main__":
-    main()
+    cli_entry()
